@@ -1,0 +1,96 @@
+{
+  "name": "tailmark",
+  "version": "1.0.0",
+  "description": "Safe bulk installer and manager for War Thunder user skins and sound modifications.",
+  "main": "out/main/index.js",
+  "type": "module",
+  "author": "Tailmark contributors",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "npm run typecheck && electron-vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "fixtures": "tsx scripts/generate-fixtures.ts",
+    "assets:installer": "node scripts/generate-installer-assets.mjs",
+    "dist:win": "npm run assets:installer && npm run build && electron-builder --win nsis",
+    "package:win": "npm run dist:win",
+    "package:dir": "npm run assets:installer && npm run build && electron-builder --dir"
+  },
+  "dependencies": {
+    "@electron-toolkit/utils": "^4.0.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "yauzl": "^3.2.0",
+    "zod": "^3.24.1",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.0.3",
+    "@types/react-dom": "^19.0.2",
+    "@types/yauzl": "^2.10.3",
+    "@types/yazl": "^2.4.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^3.0.0",
+    "jsdom": "^25.0.1",
+    "png-to-ico": "^3.0.2",
+    "sharp": "^0.35.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8",
+    "yazl": "^3.3.1"
+  },
+  "build": {
+    "appId": "com.tailmark.app",
+    "productName": "Tailmark",
+    "executableName": "Tailmark",
+    "asar": true,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Tailmark-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Tailmark",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/installerIcon.ico",
+      "uninstallerIcon": "build/uninstallerIcon.ico",
+      "installerHeader": "build/installerHeader.bmp",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/uninstallerSidebar.bmp",
+      "include": "build/installer.nsh",
+      "uninstallDisplayName": "Tailmark"
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

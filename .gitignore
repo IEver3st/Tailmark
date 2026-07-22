@@ -1,0 +1,41 @@
+# Dependencies & build output
+node_modules/
+out/
+release/
+coverage/
+
+# Logs & OS
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE / AI tooling
+.cursor/
+.vscode/
+.idea/
+
+# AI & planning docs
+AGENTS.md
+CLAUDE.md
+DESIGN.md
+PRODUCT.md
+IMPLEMENTATION_AUDIT.md
+docs/
+artifacts/
+*.plan.md
+**/plans/
+**/specs/
+
+# Tests & fixtures
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+vitest.config.ts
+src/test/
+fixtures/
+scripts/generate-fixtures.ts
+scripts/capture-cdp.mjs
+
+# Alternate lockfiles (npm is canonical)
+bun.lock
