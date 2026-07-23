@@ -1,199 +1,85 @@
 # Tailmark
 
-Tailmark is a local Windows desktop application for safely analysing, installing, and managing War Thunder user skins and sound modifications. It is designed for large batches of inconsistent ZIP archives and makes every game-directory write reviewed, staged, backed up, and recoverable.
+Safe bulk installer and manager for War Thunder user skins and sound mods.
+
+Tailmark inspects every ZIP before it touches your game folder, shows exactly where each package will go, backs up existing content, and lets you recover from mistakes.
 
 ## Requirements
 
-- Windows 10 or Windows 11
-- Node.js 22 or newer
-- npm 10 or newer
+- Windows 10 or Windows 11 (64-bit)
+- A War Thunder installation (Steam or standalone)
 
-No War Thunder installation is required for development or automated tests.
+## Install
 
-## Commands
+1. Download `Tailmark-Setup-<version>.exe` from the latest release.
+2. Run the installer and choose where to install Tailmark.
+3. Launch Tailmark from the desktop or Start Menu shortcut.
 
-```powershell
-npm install
-npm run dev
-```
+The installer does not modify War Thunder files.
 
-Build the production application:
+## First launch
 
-```powershell
-npm run build
-```
+1. Open **Settings**.
+2. Point Tailmark at your War Thunder folder — the one that contains `config.blk` and `aces.exe`.
+   - Use **Detect automatically** if Tailmark finds Steam or a common install path.
+   - Or use **Select folder** and browse to the game directory yourself.
+3. Pick a color theme if you want — Everforest, Catppuccin, Nord, Tokyo Night, and others are available under **Appearance**.
 
-Create the Windows x64 NSIS installer:
+You can analyse ZIP files before the game path is set, but installs require a verified installation.
 
-```powershell
-npm run dist:win
-```
+## Main sections
 
-(`npm run package:win` is an alias for the same command.)
-
-Generate the representative ZIP corpus and run tests:
-
-```powershell
-npm run fixtures
-npm test
-npm run typecheck
-```
-
-Generated fixtures are written to `fixtures/generated/` and are intentionally excluded from source control.
-
-## Application architecture
-
-```text
-src/
-├── main/
-│   ├── ipc/              validated Electron handlers
-│   ├── filesystem/       path safety and transactional file operations
-│   ├── archives/         streamed ZIP inspection, extraction, and normalisation
-│   ├── detection/        game and mod-type detection
-│   ├── installation/     skin installs and sound activation
-│   ├── backups/          restorable backup records
-│   ├── config-blk/       brace-aware config editor
-│   ├── processes/        Windows game-process checks
-│   └── persistence/      versioned atomic JSON storage
-├── preload/              typed, narrow context bridge
-├── renderer/             React workbench and Zustand state
-└── shared/               models, constants, and Zod IPC schemas
-```
-
-The renderer has no Node.js or filesystem access. `contextIsolation`, the Chromium sandbox, and web security are enabled; `nodeIntegration` is disabled. The preload exposes only typed operations. Every renderer-controlled IPC argument is parsed again with bounded Zod schemas in the main process.
-
-ZIPs are opened with `yauzl` in lazy-entry mode. Extraction uses per-entry streams and never executes archive content. The main process rejects traversal, absolute paths, alternate data streams, reserved Windows names, symbolic links, excessive depth, implausible compression ratios, excessive entry counts, and oversized expanded archives before committing content.
-
-## War Thunder path detection
-
-Detection runs at first launch when enabled and considers candidates in this order:
-
-1. The previously saved path
-2. Steam's default installation plus every library in `steamapps/libraryfolders.vdf`
-3. Common standalone Gaijin locations under Program Files and Local AppData
-4. A user-selected directory from **Select War Thunder Installation**
-
-A directory is scored from concrete evidence. `config.blk` and `aces.exe`/`win64/aces.exe` are strong evidence; existing `UserSkins` and `sound` folders add confidence but are not required. A candidate needs the strong evidence combination before it is accepted. The selected path is revalidated before every install or sound activation.
-
-## Folder normalisation
-
-Normalisation is deterministic and runs before extraction:
-
-- Loose skin files are wrapped in a Windows-safe folder derived from the ZIP basename.
-- One valid existing skin parent is preserved without adding duplicate nesting.
-- Single-child wrapper chains are flattened until direct, credible mod files are reached.
-- `__MACOSX`, AppleDouble files, `.DS_Store`, `Thumbs.db`, and `desktop.ini` are ignored during structural reasoning.
-- Independent credible sibling skin folders become separate destinations in a multi-skin plan.
-- Sound packages are rooted at their actual `sound/mod` content; wrapper folders such as `<package>/sound/mod/` and `mod/` are removed so only the payload is deployed.
-- README-style documentation is retained but does not affect classification.
-- Mixed signals, unsafe entries, executable content, encryption, corruption, or speculative layouts remain in **Needs Review**.
-
-Folder names preserve useful spaces and punctuation; only Windows-invalid characters, reserved device names, and invalid trailing characters are changed.
-
-## Transaction model
-
-Skin installation follows:
-
-```text
-inspect → classify → normalise → validate → detect conflicts
-→ extract to same-volume staging → verify → back up
-→ atomic directory swap → record activity
-```
-
-Collision policies are Skip, Replace, Merge, and Install as Copy. Replace and Merge always create a backup. A failed directory swap restores the previous destination. Readable copies use names such as `Skin Name (2)`.
-
-User skin installation remains available while War Thunder is running because skins are written only beneath `UserSkins`. Sound activation and deactivation still require the game and launcher to be closed because those operations change active game files and `config.blk`.
-
-Duplicate skin detection fingerprints canonical relative paths, sizes, and ZIP content checksums directly from the central directory, so analysis does not decompress large textures. It recognizes an installed skin even when the ZIP was recompressed or renamed. Tailmark-installed fingerprints are reused instead of re-reading the entire library; legacy or externally installed skins are warmed and persisted in the background, with foreground analysis waiting no more than 25 ms for that optional duplicate check. Duplicate items are skipped automatically when the setting is enabled and require explicit confirmation when it is disabled.
-
-Installed-skin discovery is shallow on the foreground path. New external folders appear immediately, while a single background index pass calculates their file count, total size, and content fingerprint without launching an unbounded set of competing disk reads. When **Ignore duplicate content** is enabled, fully duplicate archives are marked Skipped and duplicate roots inside a mixed archive are removed from the install plan before extraction.
-
-When **Move source ZIP to Recycle Bin** is enabled, Tailmark moves a skin archive to the Windows Recycle Bin only after at least one skin folder installs successfully. Failed and skipped archives remain in place, and a cleanup error is reported separately without changing the successful install result.
-
-Sound archives are stored under the Electron user-data directory in `library/sounds/<package-id>/`, and every package has a named single-package profile. Installing one sound archive immediately activates that profile and copies its payload directly into `<War Thunder>/sound/mod/`; it never adds another `sound`, `mod`, or package wrapper. Importing several sound archives together leaves them inactive so the user can choose one profile or intentionally create a combined profile instead of having the last archive silently replace the others. Activation checks that War Thunder is not running, stages the profile, backs up `sound/mod`, safely updates `config.blk`, writes a management marker, swaps the staged directory, and records the operation.
-
-Existing `sound/mod` installs are inventoried from all payload files, not only a fixed extension list. Tailmark fingerprints the deployed tree and compares it with saved packages and deterministic merged-profile outputs. The Library distinguishes verified management, an exact profile match that can be reconnected without replacing files, changed managed content, stale markers, and unknown installs that can be adopted. Deactivation deletes the folder only when both its marker and current fingerprint prove Tailmark ownership; otherwise it disables the config flag and preserves every payload file.
-
-`config.blk` editing uses a brace-aware tokenizer that skips strings and comments. It preserves line endings and indentation where possible, removes duplicate properties, enables both `enable_mod` and `fmod_sound_enable`, writes `enable_mod:b=no` when disabling, validates the result, and creates a timestamped adjacent backup before a recoverable same-directory swap.
-
-## Data storage
-
-Electron's Windows user-data directory stores:
-
-- `state.json` — versioned settings, library metadata, profiles, backups, and history
-- `library/sounds/` — inactive managed sound packages
-- `backups/` — restorable filesystem snapshots
-- `temp/` — removable operation scratch space
-
-JSON writes use a temporary file followed by a rename. The app does not require a database or network service.
-
-## Windows installer
-
-Tailmark ships an assisted NSIS installer built with electron-builder. Branding is monochrome jet-and-mountain art.
-
-### Source art
-
-| Role | Path |
+| Section | What it does |
 | --- | --- |
-| Installer banner (wordmark + jet scene) | `build/branding/tailmark-banner.png` |
-| Installer sidebar art (jet + mountain) | `build/branding/tailmark-sidebar.png` |
-| Application icon (square, preferred) | `build/icon.png` |
+| **Installer** | Drop or browse ZIP files and folders. Tailmark analyses each archive, classifies skins vs sound mods, flags problems, and installs ready items in batch. |
+| **Library** | View installed skins, manage sound packages and profiles, and restore from backups. |
+| **Activity** | Browse a history of installs, activations, removals, and errors. Export the log if you need it. |
+| **Settings** | Game path, import behaviour, backup retention, and advanced sound options. |
 
-Replace those sources when branding changes, then regenerate derived assets.
+## User skins
 
-### Regenerate installer assets
+- Skins install into War Thunder's `UserSkins` folder.
+- Drop any number of ZIP files onto the Installer, or add a whole folder of archives.
+- Tailmark normalises messy archives — loose files, extra wrapper folders, and common junk like `__MACOSX` are handled automatically.
+- **You can install skins while War Thunder is running.**
 
-```powershell
-npm run assets:installer
-```
+### Duplicates and name conflicts
 
-Force a full rewrite:
+In **Settings → Import behaviour**:
 
-```powershell
-node scripts/generate-installer-assets.mjs --force
-```
+- **Ignore duplicate content** — skip skins whose files already match something installed, even if the ZIP name is different.
+- **Existing folder behaviour** — what to do when a folder name already exists: skip, replace, merge, or install as a copy. Replace and merge always create a backup first.
+- **Move source ZIP to Recycle Bin** — optionally clean up archives after a successful skin install.
 
-Generated outputs (commit these so packaging works without Sharp on every machine):
+## Sound mods
 
-- `build/icon.ico`
-- `build/installerIcon.ico`
-- `build/uninstallerIcon.ico`
-- `build/installerHeader.bmp` (150×57)
-- `build/installerSidebar.bmp` (164×314)
-- `build/uninstallerSidebar.bmp` (164×314)
-- `build/installer.nsh`
+- Sound packages are saved in Tailmark's library and deployed to `<War Thunder>/sound/mod/`.
+- Installing one sound archive creates a named profile and activates it immediately.
+- Installing several sound archives at once imports them without activating — pick one profile or combine them in the Library.
+- **Close War Thunder and the launcher before activating or deactivating sound mods.** Tailmark checks this before writing.
 
-### Build the installer
+### Existing sound mods
 
-```powershell
-npm run dist:win
-```
+If you already have content in `sound/mod/`, the Library can detect it. Tailmark distinguishes managed installs, exact matches it can reconnect, changed content, and unknown folders you can adopt into the library.
 
-This regenerates installer assets, typechecks, builds with electron-vite, then runs `electron-builder --win nsis`.
+Deactivation is safe: Tailmark only deletes files it can verify it placed there. Otherwise it turns off `enable_mod` in `config.blk` and leaves your files alone.
 
-Output directory: `release/`
+## Safety and backups
 
-Installer filename pattern: `Tailmark-Setup-<version>.exe` (for example `release/Tailmark-Setup-1.0.0.exe`).
+Every replace, merge, removal, and sound activation can create a restorable backup before files change.
 
-### Behaviour
+- Backups appear in **Library → Backups**.
+- Failed installs roll back — you do not end up with a half-written folder.
+- Tailmark never runs executable content found inside archives.
+- Configure how many backups to keep under **Settings → Backup retention**.
 
-- Assisted installer (not one-click): directory selection, desktop and Start Menu shortcut options
-- Current-user installation only (no all-users / install-mode page; `allowElevation: false`)
-- Upgrades reuse the stable `appId` (`com.tailmark.app`) so Windows treats installs as the same product
-- Uninstall removes the application files; Electron user-data (settings, imported sound packages, backups, activity) is left in place
-- The installer does not modify War Thunder files
+## Tips
 
-### Code signing
+- Use the Installer queue filters (**Ready**, **Problems**, **Skins**, **Sounds**) to work through large batches quickly.
+- Select an archive in the queue to inspect its proposed destination, warnings, and conflicts before installing.
+- Check **Activity** if something unexpected happened — each operation is recorded with enough detail to diagnose issues.
+- Uninstalling Tailmark removes the app only. Your settings, imported sound packages, backups, and activity history stay on disk until you delete them manually.
 
-Public distribution should use an Authenticode certificate. This repository does not embed signing credentials. To sign locally, configure electron-builder Windows signing via environment variables or `win` certificate settings (for example `CSC_LINK` / `CSC_KEY_PASSWORD`, or `win.certificateFile` / `win.certificatePassword`). Unsigned installers may show SmartScreen warnings; that is expected until a valid certificate is configured.
+## License
 
-### Windows-only notes
-
-- NSIS packaging must run on Windows (or a Windows CI runner) with electron-builder’s NSIS toolchain
-- Asset generation itself is cross-platform (Node + Sharp) and only needs the source PNG files
-
-## Testing
-
-Vitest covers path validation, classification, all major normalisation rules, corrupt and malicious ZIPs, content-hash duplicates, config editing, collision naming and merge behaviour, and rollback after a simulated failed commit. Integration tests use temporary directories and generated ZIPs; they never touch a real game installation.
-
-See [IMPLEMENTATION_AUDIT.md](./IMPLEMENTATION_AUDIT.md) for the final requirement-by-requirement status and remaining limitations.
+MIT
