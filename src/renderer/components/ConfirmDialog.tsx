@@ -1,10 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 
 interface Props { open: boolean; title: string; detail: string; confirmLabel: string; destructive?: boolean; onCancel(): void; onConfirm(): void }
 
 export function ConfirmDialog(props: Props): React.JSX.Element {
   const ref = useRef<HTMLDialogElement>(null);
-  const titleId = 'confirm-dialog-title';
+  const titleId = useId();
   useEffect(() => { const dialog = ref.current; if (!dialog) return; if (props.open && !dialog.open) dialog.showModal(); if (!props.open && dialog.open) dialog.close(); }, [props.open]);
   return <dialog ref={ref} aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); props.onCancel(); }} className="confirm-dialog">
     <h2 id={titleId}>{props.title}</h2><p>{props.detail}</p>

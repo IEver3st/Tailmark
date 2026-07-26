@@ -1,8 +1,9 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import type { AppSnapshot, OperationProgress, TailmarkApi } from '@shared/models';
+import type { AppSnapshot, DownloadAutomationEvent, OperationProgress, TailmarkApi } from '@shared/models';
 
 const api: TailmarkApi = {
   app: {
+    bootstrap: () => ipcRenderer.invoke('app:bootstrap'),
     snapshot: () => ipcRenderer.invoke('app:snapshot'),
     openAppData: () => ipcRenderer.invoke('app:open-data'),
     clearTemporaryFiles: () => ipcRenderer.invoke('app:clear-temp'),
@@ -11,10 +12,14 @@ const api: TailmarkApi = {
     chooseArchives: () => ipcRenderer.invoke('dialogs:archives'),
     chooseImportFolder: () => ipcRenderer.invoke('dialogs:folder'),
     chooseGameRoot: () => ipcRenderer.invoke('dialogs:game-root'),
+    chooseDownloadsFolder: () => ipcRenderer.invoke('dialogs:downloads-folder'),
     exportActivity: (defaultName, content) => ipcRenderer.invoke('dialogs:export-activity', defaultName, content),
   },
   files: {
-    pathsForDroppedFiles: (files) => files.map((file) => webUtils.getPathForFile(file)).filter(Boolean),
+    pathsForDroppedFiles: (files) => files.flatMap((file) => {
+      const path = webUtils.getPathForFile(file);
+      return path ? [path] : [];
+    }),
     openPath: (path) => ipcRenderer.invoke('files:open-path', path),
   },
   archives: {
@@ -36,6 +41,26 @@ const api: TailmarkApi = {
     renameProfile: (id, name) => ipcRenderer.invoke('library:rename-profile', id, name),
     removeProfile: (id) => ipcRenderer.invoke('library:remove-profile', id),
     restoreBackup: (id) => ipcRenderer.invoke('library:restore-backup', id),
+    createCollection: (name) => ipcRenderer.invoke('library:create-collection', name),
+    setCollectionMembers: (id, skinIds) => ipcRenderer.invoke('library:set-collection-members', id, skinIds),
+    activateCollection: (id) => ipcRenderer.invoke('library:activate-collection', id),
+    removeCollection: (id) => ipcRenderer.invoke('library:remove-collection', id),
+    importSights: (paths) => ipcRenderer.invoke('library:import-sights', paths),
+    activateSight: (id) => ipcRenderer.invoke('library:activate-sight', id),
+    deactivateSight: (id) => ipcRenderer.invoke('library:deactivate-sight', id),
+    removeSight: (id) => ipcRenderer.invoke('library:remove-sight', id),
+    importHangars: (paths) => ipcRenderer.invoke('library:import-hangars', paths),
+    activateHangar: (id) => ipcRenderer.invoke('library:activate-hangar', id),
+    deactivateHangar: () => ipcRenderer.invoke('library:deactivate-hangar'),
+    removeHangar: (id) => ipcRenderer.invoke('library:remove-hangar', id),
+  },
+  safeMode: {
+    enter: () => ipcRenderer.invoke('safe-mode:enter'),
+    restore: () => ipcRenderer.invoke('safe-mode:restore'),
+  },
+  recovery: {
+    resume: () => ipcRenderer.invoke('recovery:resume'),
+    rollback: () => ipcRenderer.invoke('recovery:rollback'),
   },
   game: {
     detect: () => ipcRenderer.invoke('game:detect'),
@@ -57,6 +82,11 @@ const api: TailmarkApi = {
       const listener = (_event: Electron.IpcRendererEvent, snapshot: AppSnapshot) => callback(snapshot);
       ipcRenderer.on('events:snapshot', listener);
       return () => ipcRenderer.removeListener('events:snapshot', listener);
+    },
+    onDownloadAutomation: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, event: DownloadAutomationEvent) => callback(event);
+      ipcRenderer.on('events:download-automation', listener);
+      return () => ipcRenderer.removeListener('events:download-automation', listener);
     },
   },
 };

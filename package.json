@@ -1,6 +1,6 @@
 {
   "name": "tailmark",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Safe bulk installer and manager for War Thunder user skins and sound modifications.",
   "main": "out/main/index.js",
   "type": "module",
@@ -58,6 +58,12 @@
     "files": [
       "out/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      }
     ],
     "win": {
       "icon": "build/icon.ico",

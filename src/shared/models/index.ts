@@ -114,12 +114,111 @@ export interface SkinPackage {
   id: string;
   name: string;
   path: string;
+  libraryPath?: string;
+  active?: boolean;
   sourceArchive?: string;
   installedAt: string;
   fileCount: number;
   totalSize: number;
   contentHash?: string;
   validationStatus: 'valid' | 'warning' | 'invalid';
+}
+
+export interface SkinCollection {
+  id: string;
+  name: string;
+  skinIds: string[];
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ManagedSight {
+  id: string;
+  name: string;
+  libraryPath: string;
+  payloadPath?: string;
+  sourceArchive: string;
+  scope: 'all-tanks' | 'vehicle';
+  vehicleId?: string;
+  active: boolean;
+  fileCount: number;
+  totalSize: number;
+  contentHash: string;
+  importedAt: string;
+  validationStatus: 'valid' | 'warning' | 'invalid';
+  destinationPath?: string;
+  backupId?: string;
+}
+
+export interface ManagedHangar {
+  id: string;
+  name: string;
+  libraryPath: string;
+  sourceArchive: string;
+  configFile: string;
+  active: boolean;
+  fileCount: number;
+  totalSize: number;
+  contentHash: string;
+  importedAt: string;
+  validationStatus: 'valid' | 'warning' | 'invalid';
+  deployedPaths?: string[];
+  backupIds?: string[];
+  previousConfigValue?: string | null;
+}
+
+export interface SafeModeState {
+  active: boolean;
+  activatedAt: string | null;
+  previousCollectionId: string | null;
+  previousSightIds: string[];
+  previousHangarId: string | null;
+  previousSoundProfileId: string | null;
+  unmanagedWarnings: string[];
+}
+
+export type ManagedOperationKind =
+  | 'archive-install'
+  | 'downloads-install'
+  | 'collection-switch'
+  | 'safe-mode-enter'
+  | 'safe-mode-restore'
+  | 'sight-activation'
+  | 'hangar-activation';
+
+export interface RecoveryRecord {
+  id: string;
+  kind: ManagedOperationKind;
+  label: string;
+  phase: 'prepared' | 'staging' | 'committing' | 'rollback';
+  startedAt: string;
+  updatedAt: string;
+  destinations: Array<{ path: string; existed: boolean }>;
+  canResume: boolean;
+  resumeAction?: 'activate-collection' | 'enter-safe-mode' | 'restore-safe-mode' | 'activate-sight' | 'activate-hangar';
+  resumeId?: string;
+  rollbackId?: string;
+  technicalDetails?: string;
+}
+
+export interface DownloadAutomationEvent {
+  id: string;
+  archivePath: string;
+  filename: string;
+  createdAt: string;
+  result: 'installed' | 'duplicate-recycled' | 'review' | 'failed';
+  detail: string;
+  analysis?: ArchiveAnalysis;
+}
+
+export interface DownloadAutomationState {
+  enabled: boolean;
+  folder: string;
+  status: 'off' | 'watching' | 'paused-safe-mode' | 'paused-recovery' | 'processing' | 'error';
+  lastScanAt: string | null;
+  lastEvent: DownloadAutomationEvent | null;
+  error: string | null;
 }
 
 export interface SoundPackage {
@@ -215,7 +314,8 @@ export interface BackupRecord {
 export interface ActivityRecord {
   id: string;
   createdAt: string;
-  action: 'install-skin' | 'import-sound' | 'activate-sound' | 'deactivate-sound' | 'remove' | 'restore' | 'settings';
+  action: 'install-skin' | 'import-sound' | 'activate-sound' | 'deactivate-sound' | 'remove' | 'restore' | 'settings'
+    | 'collection-switch' | 'safe-mode' | 'install-sight' | 'activate-sight' | 'install-hangar' | 'activate-hangar' | 'recovery';
   packageName: string;
   destination: string;
   result: 'success' | 'warning' | 'failed';
@@ -234,6 +334,9 @@ export interface AppSettings {
   defaultDuplicateBehaviour: CollisionPolicy;
   ignoreDuplicateContent: boolean;
   deleteSourceZipAfterInstall: boolean;
+  autoInstallDownloads: boolean;
+  downloadsFolder: string | null;
+  keepRunningInTray: boolean;
   retainBackupCount: number;
   confirmBeforeReplacement: boolean;
   advancedSoundMerging: boolean;
@@ -247,6 +350,12 @@ export interface AppSnapshot {
   skins: SkinPackage[];
   sounds: SoundPackage[];
   profiles: SoundProfile[];
+  collections: SkinCollection[];
+  sights: ManagedSight[];
+  hangars: ManagedHangar[];
+  safeMode: SafeModeState;
+  recovery: RecoveryRecord | null;
+  downloadAutomation: DownloadAutomationState;
   backups: BackupRecord[];
   activity: ActivityRecord[];
   gameRunning: boolean;
@@ -289,6 +398,7 @@ export interface InstallRequest {
 
 export interface TailmarkApi {
   app: {
+    bootstrap(): Promise<ApiResult<AppSnapshot>>;
     snapshot(): Promise<ApiResult<AppSnapshot>>;
     openAppData(): Promise<ApiResult<null>>;
     clearTemporaryFiles(): Promise<ApiResult<number>>;
@@ -297,6 +407,7 @@ export interface TailmarkApi {
     chooseArchives(): Promise<ApiResult<string[]>>;
     chooseImportFolder(): Promise<ApiResult<string[]>>;
     chooseGameRoot(): Promise<ApiResult<GameInstallation | null>>;
+    chooseDownloadsFolder(): Promise<ApiResult<string | null>>;
     exportActivity(defaultName: string, content: string): Promise<ApiResult<string | null>>;
   };
   files: {
@@ -324,6 +435,26 @@ export interface TailmarkApi {
     renameProfile(id: string, name: string): Promise<ApiResult<SoundProfile>>;
     removeProfile(id: string): Promise<ApiResult<null>>;
     restoreBackup(id: string): Promise<ApiResult<null>>;
+    createCollection(name: string): Promise<ApiResult<SkinCollection>>;
+    setCollectionMembers(id: string, skinIds: string[]): Promise<ApiResult<SkinCollection>>;
+    activateCollection(id: string): Promise<ApiResult<null>>;
+    removeCollection(id: string): Promise<ApiResult<null>>;
+    importSights(paths: string[]): Promise<ApiResult<ManagedSight[]>>;
+    activateSight(id: string): Promise<ApiResult<null>>;
+    deactivateSight(id: string): Promise<ApiResult<null>>;
+    removeSight(id: string): Promise<ApiResult<null>>;
+    importHangars(paths: string[]): Promise<ApiResult<ManagedHangar[]>>;
+    activateHangar(id: string): Promise<ApiResult<null>>;
+    deactivateHangar(): Promise<ApiResult<null>>;
+    removeHangar(id: string): Promise<ApiResult<null>>;
+  };
+  safeMode: {
+    enter(): Promise<ApiResult<SafeModeState>>;
+    restore(): Promise<ApiResult<SafeModeState>>;
+  };
+  recovery: {
+    resume(): Promise<ApiResult<null>>;
+    rollback(): Promise<ApiResult<null>>;
   };
   game: {
     detect(): Promise<ApiResult<GameInstallation | null>>;
@@ -340,5 +471,6 @@ export interface TailmarkApi {
   events: {
     onProgress(callback: (progress: OperationProgress) => void): () => void;
     onSnapshot(callback: (snapshot: AppSnapshot) => void): () => void;
+    onDownloadAutomation(callback: (event: DownloadAutomationEvent) => void): () => void;
   };
 }

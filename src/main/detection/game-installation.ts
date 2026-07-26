@@ -41,8 +41,11 @@ export async function validateGameInstallation(root: string, source: GameInstall
 }
 
 export async function detectGameInstallation(savedRoot?: string | null): Promise<GameInstallation | null> {
+  if (savedRoot) {
+    const saved = await validateGameInstallation(savedRoot, 'saved');
+    if (saved.valid) return saved;
+  }
   const candidates: Array<{ path: string; source: GameInstallation['source'] }> = [];
-  if (savedRoot) candidates.push({ path: savedRoot, source: 'saved' });
   for (const steamRoot of steamRoots()) {
     for (const library of await parseSteamLibraries(steamRoot)) {
       candidates.push({ path: join(library, 'steamapps', 'common', 'War Thunder'), source: 'steam' });
@@ -56,14 +59,15 @@ export async function detectGameInstallation(savedRoot?: string | null): Promise
   if (programFilesX86) candidates.push({ path: join(programFilesX86, 'War Thunder'), source: 'gaijin' });
 
   const seen = new Set<string>();
-  const results: GameInstallation[] = [];
-  for (const candidate of candidates) {
+  const uniqueCandidates = candidates.filter((candidate) => {
     const key = candidate.path.toLowerCase();
-    if (seen.has(key)) continue;
+    if (seen.has(key)) return false;
     seen.add(key);
-    const result = await validateGameInstallation(candidate.path, candidate.source);
-    if (result.valid) results.push(result);
-  }
+    return true;
+  });
+  const results = (await Promise.all(uniqueCandidates.map(
+    (candidate) => validateGameInstallation(candidate.path, candidate.source),
+  ))).filter((result) => result.valid);
   return results.sort((a, b) => b.confidence - a.confidence)[0] ?? null;
 }
 

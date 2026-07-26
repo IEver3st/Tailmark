@@ -76,9 +76,10 @@ export class InstallService {
         failures += 1;
         continue;
       }
-      const duplicateRoots = new Set(analysis.conflicts
-        .filter((conflict) => conflict.kind === 'duplicate-content')
-        .map((conflict) => conflict.relativePath.toLowerCase()));
+      const duplicateRoots = analysis.conflicts.reduce((roots, conflict) => {
+        if (conflict.kind === 'duplicate-content') roots.add(conflict.relativePath.toLowerCase());
+        return roots;
+      }, new Set<string>());
       const hasDuplicateWarning = analysis.warnings.some((warning) => warning.code === 'duplicate-skin' || warning.code === 'duplicate-sound');
       const everySkinRootIsDuplicate = type === 'skin' && (duplicateRoots.size > 0
         ? analysis.roots.every((root) => duplicateRoots.has(root.destinationName.toLowerCase()))
@@ -178,11 +179,14 @@ export class InstallService {
           }
         }
         const stats = didMerge ? await directorySummary(staged) : rootStatsFromAnalysis(analysis, root);
+        const id = randomUUID();
+        const libraryPath = join(this.dataRoot, 'library', 'skins', id, 'content');
+        await copyDirectory(staged, libraryPath);
         const rollback = join(userSkins, `.tailmark-rollback-${randomUUID()}`);
         await replaceDirectory(staged, destination, rollback);
         destinations.push(destination);
         installed.push({
-          id: randomUUID(), name: destinationName, path: destination, sourceArchive: analysis.archivePath,
+          id, name: destinationName, path: destination, libraryPath, active: true, sourceArchive: analysis.archivePath,
           installedAt: new Date().toISOString(), fileCount: stats.fileCount, totalSize: stats.totalSize,
           contentHash: root.contentHash ?? analysis.archiveHash, validationStatus: 'valid',
         });
@@ -191,10 +195,26 @@ export class InstallService {
         return { archiveId: analysis.id, success: true, status: 'skipped', destinations: [], filesWritten: 0, bytesWritten: 0, backupIds, message: 'Skipped because the destination already exists.' };
       }
       await this.repository.update((state) => {
-        for (const skin of installed) {
-          state.skins = state.skins.filter((existing) => existing.path.toLowerCase() !== skin.path.toLowerCase());
-          state.skins.push(skin);
+        let activeCollection = state.collections.find((collection) => collection.active);
+        if (!activeCollection) {
+          const now = new Date().toISOString();
+          activeCollection = {
+            id: randomUUID(), name: 'Current Installation', skinIds: [], active: true, createdAt: now, updatedAt: now,
+          };
+          state.collections.push(activeCollection);
         }
+        const installedPaths = new Set(installed.map((skin) => skin.path.toLowerCase()));
+        const replacedIds = state.skins.reduce((ids, existing) => {
+          if (installedPaths.has(existing.path.toLowerCase())) ids.add(existing.id);
+          return ids;
+        }, new Set<string>());
+        for (const collection of state.collections) {
+          collection.skinIds = collection.skinIds.filter((id) => !replacedIds.has(id));
+        }
+        state.skins = state.skins.filter((existing) => !installedPaths.has(existing.path.toLowerCase()));
+        state.skins.push(...installed);
+        activeCollection.skinIds = [...new Set([...activeCollection.skinIds, ...installed.map((skin) => skin.id)])];
+        activeCollection.updatedAt = new Date().toISOString();
       });
       await this.repository.addActivity({ action: 'install-skin', packageName: analysis.displayName, destination: destinations.join('; '), result: 'success', fileCount: extracted.files, ...(backupIds[0] ? { backupId: backupIds[0] } : {}), details: `Installed ${analysis.roots.length} skin folder(s) using ${options.collisionPolicy} collision handling.` });
       return { archiveId: analysis.id, success: true, status: 'installed', destinations, filesWritten: extracted.files, bytesWritten: extracted.bytes, backupIds, message: `Installed ${destinations.length} user skin ${destinations.length === 1 ? 'folder' : 'folders'}.` };

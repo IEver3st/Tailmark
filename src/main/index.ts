@@ -9,10 +9,17 @@ import { InstallService } from './installation/install-service';
 import { SoundService } from './installation/sound-service';
 import { StateRepository } from './persistence/state';
 import { detectGameInstallation } from './detection/game-installation';
+import { ManagedContentService } from './management/managed-content-service';
+import { OperationJournal } from './management/operation-journal';
+import { TrayController } from './tray/tray-controller';
 
 app.setName('Tailmark');
+if (process.platform === 'win32') app.setAppUserModelId('com.tailmark.app');
 
 let mainWindow: BrowserWindow | null = null;
+let trayController: TrayController | null = null;
+let keepRunningInTray = false;
+let isQuitting = false;
 
 async function migrateLegacyUserData(dataRoot: string): Promise<void> {
   if (existsSync(join(dataRoot, 'state.json'))) return;
@@ -25,6 +32,23 @@ async function migrateLegacyUserData(dataRoot: string): Promise<void> {
 function getWindowIcon(): string | undefined {
   const iconPath = join(app.getAppPath(), 'build', 'icon.png');
   return existsSync(iconPath) ? iconPath : undefined;
+}
+
+function getTrayIcon(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'icon.ico')
+    : join(app.getAppPath(), 'build', 'icon.ico');
+}
+
+function showWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    mainWindow = null;
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
 }
 
 function createWindow(): void {
@@ -56,11 +80,29 @@ function createWindow(): void {
   else void mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
 }
 
-app.whenReady().then(async () => {
+const singleInstance = app.requestSingleInstanceLock();
+if (!singleInstance) app.quit();
+else app.on('second-instance', () => showWindow());
+
+if (singleInstance) app.whenReady().then(async () => {
   const dataRoot = app.getPath('userData');
+  const downloadsRoot = app.getPath('downloads');
   await migrateLegacyUserData(dataRoot);
   const repository = new StateRepository(dataRoot);
   const initialState = await repository.load();
+  keepRunningInTray = initialState.settings.keepRunningInTray;
+  trayController = new TrayController({
+    iconPath: getTrayIcon(),
+    defaultDownloadsRoot: downloadsRoot,
+    openWindow: showWindow,
+    quit: () => {
+      isQuitting = true;
+      trayController?.destroy();
+      app.quit();
+    },
+    isWindowVisible: () => mainWindow?.isVisible() ?? false,
+  });
+  trayController.configure(initialState.settings);
   if (initialState.settings.autoDetectInstallation) {
     const installation = await detectGameInstallation(initialState.settings.gameRoot).catch(() => null);
     if (installation && installation.root !== initialState.settings.gameRoot) {
@@ -68,14 +110,46 @@ app.whenReady().then(async () => {
     }
   }
   const backups = new BackupService(dataRoot, repository);
-  registerIpc({ dataRoot, repository, backups, installer: new InstallService(dataRoot, repository, backups), sounds: new SoundService(dataRoot, repository, backups), getWindow: () => mainWindow });
+  const sounds = new SoundService(dataRoot, repository, backups);
+  const journal = new OperationJournal(dataRoot);
+  const managed = new ManagedContentService({
+    dataRoot,
+    documentsRoot: app.getPath('documents'),
+    repository,
+    backups,
+    sounds,
+    journal,
+  });
+  registerIpc({
+    dataRoot,
+    downloadsRoot,
+    repository,
+    backups,
+    installer: new InstallService(dataRoot, repository, backups),
+    sounds,
+    managed,
+    journal,
+    getWindow: () => mainWindow,
+    onSettingsChanged: (settings) => {
+      keepRunningInTray = settings.keepRunningInTray;
+      trayController?.configure(settings);
+    },
+    onDownloadAutomationStateChanged: (state) => trayController?.updateAutomation(state),
+    onDownloadAutomationEvent: (event) => trayController?.notify(event),
+  });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [process.env['ELECTRON_RENDERER_URL']
       ? "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://localhost:* http://localhost:*"
       : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"], } });
   });
   createWindow();
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  app.on('activate', showWindow);
 });
 
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => { isQuitting = true; });
+app.on('will-quit', () => trayController?.destroy());
+app.on('window-all-closed', () => {
+  if (process.platform === 'darwin') return;
+  if (!isQuitting && keepRunningInTray) return;
+  app.quit();
+});

@@ -18,7 +18,12 @@ export class InstalledSkinIndex {
     if (!gameRoot) return recorded;
     const folder = join(gameRoot, 'UserSkins');
     if (!await pathExists(folder)) return recorded;
-    const byPath = new Map(recorded.map((skin) => [skin.path.toLowerCase(), skin]));
+    const inactive: SkinPackage[] = [];
+    const byPath = new Map<string, SkinPackage>();
+    for (const skin of recorded) {
+      if (skin.active === false) inactive.push(skin);
+      else byPath.set(skin.path.toLowerCase(), skin);
+    }
     const entries = await readdir(folder, { withFileTypes: true });
     const discovered = await Promise.all(entries.map(async (entry): Promise<SkinPackage | null> => {
       if (!entry.isDirectory() || entry.isSymbolicLink() || /^\.(?:tailmark|thundermod)-/i.test(entry.name)) return null;
@@ -32,6 +37,7 @@ export class InstalledSkinIndex {
         installedAt: folderStat.birthtime.toISOString(),
         fileCount: 0,
         totalSize: 0,
+        active: true,
         validationStatus: 'valid',
       };
     }));
@@ -42,12 +48,14 @@ export class InstalledSkinIndex {
       const summary = this.summaries.get(skin.path.toLowerCase());
       return summary ? { ...skin, ...summary } : skin;
     }));
-    return existing.filter((skin): skin is SkinPackage => skin !== null);
+    return [...inactive, ...existing.filter((skin): skin is SkinPackage => skin !== null)];
   }
 
   warm(skins: SkinPackage[]): Promise<void> {
     const pending = skins.filter((skin) => {
-      const key = skin.path.toLowerCase();
+      const sourcePath = skin.active === false ? skin.libraryPath : skin.path;
+      if (!sourcePath) return false;
+      const key = sourcePath.toLowerCase();
       if (skin.contentHash?.startsWith('skin-v2:') || this.summaries.has(key) || this.queued.has(key)) return false;
       this.queued.add(key);
       return true;
@@ -56,9 +64,11 @@ export class InstalledSkinIndex {
 
     this.warmChain = this.warmChain.catch(() => undefined).then(async () => {
       const completed = (await mapWithConcurrency(pending, WARM_FOLDER_CONCURRENCY, async (skin) => {
-        const key = skin.path.toLowerCase();
+        const sourcePath = skin.active === false ? skin.libraryPath : skin.path;
+        if (!sourcePath) return null;
+        const key = sourcePath.toLowerCase();
         try {
-          const summary = await inspectDirectoryContent(skin.path);
+          const summary = await inspectDirectoryContent(sourcePath);
           this.summaries.set(key, summary);
           return { skin, summary };
         } catch {

@@ -63,6 +63,11 @@ export const windowActionSchema = z.enum(['minimize', 'maximize', 'close']);
 export const profileSchema = z.object({ name: z.string().trim().min(1).max(120), packageIds: z.array(id).min(1).max(20) });
 export const adoptSoundSchema = z.object({ name: z.string().trim().min(1).max(120) });
 export const renameSchema = z.object({ id, name: z.string().trim().min(1).max(120) });
+export const collectionSchema = z.object({
+  id,
+  skinIds: z.array(id).max(10_000),
+}).strict();
+export const pathsSchema = z.array(safePath).min(1).max(1_000);
 
 export const settingsPatchSchema = z.object({
   theme: z.enum(APP_THEMES).optional(),
@@ -71,6 +76,9 @@ export const settingsPatchSchema = z.object({
   defaultDuplicateBehaviour: collisionPolicySchema.optional(),
   ignoreDuplicateContent: z.boolean().optional(),
   deleteSourceZipAfterInstall: z.boolean().optional(),
+  autoInstallDownloads: z.boolean().optional(),
+  downloadsFolder: safePath.nullable().optional(),
+  keepRunningInTray: z.boolean().optional(),
   retainBackupCount: z.number().int().min(1).max(100).optional(),
   confirmBeforeReplacement: z.boolean().optional(),
   advancedSoundMerging: z.boolean().optional(),

@@ -122,6 +122,45 @@ export function setSoundModEnabled(content: string, enabled: boolean): string {
   return result;
 }
 
+export function readHangarConfig(content: string): string | null {
+  const match = content.match(/^\s*hangarBlk:t\s*=\s*"([^"]*)"\s*$/m);
+  return match?.[1] ?? null;
+}
+
+export function setHangarConfig(content: string, value: string | null): string {
+  const pattern = /^\s*hangarBlk:t\s*=\s*"[^"]*"\s*\r?\n?/m;
+  if (value === null) return content.replace(pattern, '');
+  const lineEnding = content.includes('\r\n') ? '\r\n' : '\n';
+  const escaped = value.replaceAll('"', '\\"');
+  const line = `hangarBlk:t="${escaped}"${lineEnding}`;
+  return pattern.test(content) ? content.replace(pattern, line) : `${line}${content}`;
+}
+
+export async function updateHangarConfigFile(configPath: string, value: string | null): Promise<void> {
+  const original = await readFile(configPath, 'utf8');
+  parseBlocks(original);
+  const updated = setHangarConfig(original, value);
+  parseBlocks(updated);
+  const tempPath = `${configPath}.tailmark-hangar.tmp`;
+  const swapPath = `${configPath}.tailmark-hangar.swap`;
+  await rm(tempPath, { force: true });
+  await rm(swapPath, { force: true });
+  try {
+    await writeFile(tempPath, updated, { encoding: 'utf8', flag: 'wx' });
+    parseBlocks(await readFile(tempPath, 'utf8'));
+    await rename(configPath, swapPath);
+    await rename(tempPath, configPath);
+    await rm(swapPath, { force: true });
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => undefined);
+    if (await readFile(swapPath).then(() => true).catch(() => false)) {
+      await rm(configPath, { force: true }).catch(() => undefined);
+      await rename(swapPath, configPath).catch(() => undefined);
+    }
+    throw error;
+  }
+}
+
 function ensureFmodSoundEnabled(content: string): string {
   const lineEnding = content.includes('\r\n') ? '\r\n' : '\n';
   const sound = parseBlocks(content).find((block) => block.name.toLowerCase() === 'sound');

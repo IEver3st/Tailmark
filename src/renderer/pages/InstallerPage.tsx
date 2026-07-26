@@ -1,6 +1,7 @@
 import { AlertTriangle, FolderSearch2, PackageCheck, Plus, Search, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { ArchiveAnalysis } from '@shared/models';
+import { isIgnoredDuplicateArchive } from '@shared/archive-actions';
 import { DropZone } from '../features/installer/DropZone';
 import { QueueTable } from '../features/installer/QueueTable';
 import { ReviewInspector } from '../features/installer/ReviewInspector';
@@ -40,6 +41,9 @@ export function InstallerPage(): React.JSX.Element {
   const [confirmDuplicates, setConfirmDuplicates] = useState(false);
   const selected = queue.find((item) => item.id === selectedId) ?? null;
   const ignoreDuplicateContent = snapshot?.settings.ignoreDuplicateContent ?? true;
+  const recyclableDuplicates = snapshot?.settings.deleteSourceZipAfterInstall
+    ? queue.filter(isIgnoredDuplicateArchive).length
+    : 0;
   const stats = useMemo(() => ({
     skins: queue.filter((item) => (item.manualType ?? item.detected.type) === 'skin' && isInstallable(item, ignoreDuplicateContent)).length,
     sounds: queue.filter((item) => (item.manualType ?? item.detected.type) === 'sound' && isInstallable(item, ignoreDuplicateContent)).length,
@@ -63,13 +67,13 @@ export function InstallerPage(): React.JSX.Element {
     else requestReplacementReview();
   };
 
-  if (!queue.length) return <main className="page installer-empty"><div className="page-toolbar"><div><h1>Installer</h1><span>Analyse and install mod archives safely.</span></div></div>{!snapshot?.installation?.valid ? <section className="game-missing"><AlertTriangle /><div><strong>War Thunder was not found</strong><span>Select the installation folder before installing. You can still analyse archives now.</span></div><button type="button" onClick={() => setPage('settings')}>Open Settings</button></section> : null}<DropZone /></main>;
+  if (!queue.length) return <main className="page installer-empty"><div className="page-toolbar"><div><h1>Installer</h1><span>Analyse and install mod archives safely.</span></div></div>{snapshot && !snapshot.installation?.valid ? <section className="game-missing"><AlertTriangle /><div><strong>War Thunder was not found</strong><span>Select the installation folder before installing. You can still analyse archives now.</span></div><button type="button" onClick={() => setPage('settings')}>Open Settings</button></section> : null}<DropZone /></main>;
 
   return <main className={`page installer-page ${selected ? 'with-inspector' : ''}`}>
     <div className="page-toolbar"><div><h1>Installer</h1><span>{queue.length} {queue.length === 1 ? 'archive' : 'archives'} in queue</span></div><div className="toolbar-actions"><button type="button" className="compact" onClick={() => void chooseArchives()}><Plus />Add files</button><button type="button" className="compact" onClick={() => void chooseFolder()}><FolderSearch2 />Add folder</button></div></div>
     <section className="analysis-summary" aria-label="Analysis summary">
       <div><strong>{queue.length}</strong><span>analysed</span></div><div><strong>{stats.skins}</strong><span>skins ready</span></div><div><strong>{stats.sounds}</strong><span>sound mods ready</span></div><div><strong>{stats.duplicates}</strong><span>duplicates</span></div><div className={stats.problems ? 'warning' : ''}><strong>{stats.problems}</strong><span>need review</span></div>
-      <div className="summary-actions"><button type="button" className="primary" disabled={installing || analysing || (!stats.skins && !stats.sounds)} onClick={requestInstall}><PackageCheck />Install ready items</button><button type="button" disabled={!stats.problems} onClick={() => setFilter('problems')}>Review problems</button><button type="button" className="text-button" onClick={clearQueue}><Trash2 />Clear queue</button></div>
+      <div className="summary-actions"><button type="button" className="primary" disabled={installing || analysing || (!stats.skins && !stats.sounds && !recyclableDuplicates)} onClick={requestInstall}><PackageCheck />{recyclableDuplicates ? stats.skins || stats.sounds ? 'Install and recycle duplicates' : 'Recycle duplicate ZIPs' : 'Install ready items'}</button><button type="button" disabled={!stats.problems} onClick={() => setFilter('problems')}>Review problems</button><button type="button" className="text-button" onClick={clearQueue}><Trash2 />Clear queue</button></div>
     </section>
     <div className="queue-toolbar"><label className="search-field"><Search /><span className="sr-only">Search archives</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search queue" />{search ? <button type="button" className="icon-button" aria-label="Clear search" onClick={() => setSearch('')}><X /></button> : null}</label><div className="filter-tabs" role="group" aria-label="Filter queue">{(['all', 'ready', 'problems', 'skin', 'sound'] as const).map((value) => <button key={value} type="button" className={filter === value ? 'active' : ''} aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === 'all' ? 'All' : value === 'skin' ? 'Skins' : value === 'sound' ? 'Sounds' : value[0]?.toUpperCase() + value.slice(1)}</button>)}</div></div>
     <div className="queue-workspace"><QueueTable items={visible} />{selected ? <ReviewInspector item={selected} /> : null}</div>

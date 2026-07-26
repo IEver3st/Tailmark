@@ -2,10 +2,14 @@ import { create } from 'zustand';
 import type {
   AppSettings, AppSnapshot, ArchiveAnalysis, InstallResult, ModType, OperationProgress,
 } from '@shared/models';
+import { shouldIncludeInInstallBatch } from '@shared/archive-actions';
 
 type Page = 'installer' | 'library' | 'activity' | 'settings';
 
 interface Notice { kind: 'success' | 'warning' | 'error'; title: string; detail: string; technical?: string | undefined }
+
+let initialization: Promise<void> | null = null;
+let listenersRegistered = false;
 
 interface AppStore {
   page: Page;
@@ -69,11 +73,49 @@ export const useAppStore = create<AppStore>((set, get) => ({
   progress: null, results: [], notice: null,
   setPage: (page) => set({ page }),
   initialize: async () => {
-    const result = await window.tailmark.app.snapshot();
-    if (result.ok && result.data) set({ snapshot: result.data });
-    else set({ notice: { kind: 'error', title: 'Tailmark could not start', detail: result.error?.message ?? 'Application data could not be loaded.', technical: result.error?.details } });
-    window.tailmark.events.onProgress((progress) => set({ progress }));
-    window.tailmark.events.onSnapshot((snapshot) => set({ snapshot }));
+    if (!listenersRegistered) {
+      listenersRegistered = true;
+      window.tailmark.events.onProgress((progress) => set({ progress }));
+      window.tailmark.events.onSnapshot((snapshot) => set({ snapshot }));
+      window.tailmark.events.onDownloadAutomation((event) => {
+        set((state) => {
+          const queue = event.analysis && !state.queue.some((item) => item.archivePath.toLowerCase() === event.archivePath.toLowerCase())
+            ? [...state.queue, event.analysis]
+            : state.queue;
+          const kind = event.result === 'failed' ? 'error' as const
+            : event.result === 'review' ? 'warning' as const
+              : 'success' as const;
+          return {
+            queue,
+            selectedId: event.analysis ? state.selectedId ?? event.analysis.id : state.selectedId,
+            notice: {
+              kind,
+              title: event.result === 'installed'
+                ? 'Downloaded skin installed'
+                : event.result === 'duplicate-recycled'
+                  ? 'Duplicate download recycled'
+                  : event.result === 'review'
+                    ? 'Downloaded archive needs review'
+                    : 'Automatic installation failed',
+              detail: event.detail,
+            },
+          };
+        });
+        void get().refreshSnapshot();
+      });
+    }
+    initialization ??= (async () => {
+      const result = await window.tailmark.app.bootstrap();
+      if (result.ok && result.data) {
+        set({ snapshot: result.data });
+        void get().refreshSnapshot();
+      } else {
+        const full = await window.tailmark.app.snapshot();
+        if (full.ok && full.data) set({ snapshot: full.data });
+        else set({ notice: { kind: 'error', title: 'Tailmark could not start', detail: full.error?.message ?? result.error?.message ?? 'Application data could not be loaded.', technical: full.error?.details ?? result.error?.details } });
+      }
+    })();
+    await initialization;
   },
   addPaths: async (paths) => {
     const existing = new Set(get().queue.map((item) => item.archivePath.toLowerCase()));
@@ -142,7 +184,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   installReady: async () => {
     const state = get();
     if (!state.snapshot?.settings.gameRoot) { set({ notice: { kind: 'warning', title: 'War Thunder installation required', detail: 'Select a verified installation before installing or importing packages.' } }); return; }
-    const ready = state.queue.filter((item) => ['ready', 'conflict', 'duplicate'].includes(item.status) && !item.warnings.some((warning) => warning.level === 'error'));
+    const ready = state.queue.filter((item) => (
+      shouldIncludeInInstallBatch(item, state.snapshot?.settings.deleteSourceZipAfterInstall ?? false)
+      && !item.warnings.some((warning) => warning.level === 'error')
+    ));
     if (!ready.length) { set({ notice: { kind: 'warning', title: 'Nothing is ready to install', detail: 'Review problem items or add more archives.' } }); return; }
     const id = operationId('install');
     set({ installing: true, results: [], notice: null, progress: { operationId: id, operation: 'Preparing installation', filesCompleted: 0, bytesProcessed: 0, itemsCompleted: 0, totalItems: ready.length, successes: 0, warnings: 0, failures: 0 } });
@@ -150,18 +195,24 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (result.ok && result.data) {
       const completed = result.data;
       const byId = new Map(completed.map((item) => [item.archiveId, item]));
+      const recycledDuplicateIds = new Set<string>();
+      for (const item of completed) {
+        if (item.status === 'skipped' && item.sourceZipDeleted) recycledDuplicateIds.add(item.archiveId);
+      }
       set((current) => ({
         installing: false, results: completed,
-        queue: current.queue.map((item) => {
+        queue: current.queue.flatMap<ArchiveAnalysis>((item) => {
+          if (recycledDuplicateIds.has(item.id)) return [];
           const installResult = byId.get(item.id); if (!installResult) return item;
           const { failure: _previousFailure, ...withoutFailure } = item;
-          return {
+          return [{
             ...withoutFailure,
             status: installResult.status === 'imported' || installResult.status === 'installed' ? 'installed' : installResult.status,
             ...(!installResult.success ? { failure: { stage: 'installation' as const, message: installResult.message, ...(installResult.technicalDetails ? { technicalDetails: installResult.technicalDetails } : {}) } } : {}),
-          };
+          }];
         }),
-        selectedId: completed.find((item) => !item.success)?.archiveId ?? current.selectedId,
+        selectedId: completed.find((item) => !item.success)?.archiveId
+          ?? (current.selectedId && recycledDuplicateIds.has(current.selectedId) ? null : current.selectedId),
         notice: (() => {
           const succeeded = completed.filter((item) => item.success && item.status !== 'skipped').length;
           const skipped = completed.filter((item) => item.status === 'skipped').length;
@@ -170,7 +221,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
           const cleanupWarnings = completed.filter((item) => item.cleanupWarning);
           const summary = `${succeeded} completed, ${skipped} skipped, ${failed.length} failed.${deleted ? ` ${deleted} source ZIP${deleted === 1 ? '' : 's'} moved to the Recycle Bin.` : ''}`;
           if (!failed.length && cleanupWarnings.length) return { kind: 'warning' as const, title: 'Installed with cleanup warning', detail: `${summary} ${cleanupWarnings[0]?.cleanupWarning}` };
-          if (!failed.length) return { kind: skipped ? 'warning' as const : 'success' as const, title: 'Batch operation complete', detail: summary };
+          const unresolvedSkips = completed.filter((item) => item.status === 'skipped' && !item.sourceZipDeleted).length;
+          if (!failed.length) return { kind: unresolvedSkips ? 'warning' as const : 'success' as const, title: 'Batch operation complete', detail: summary };
           const first = failed[0];
           const archive = current.queue.find((item) => item.id === first?.archiveId)?.displayName ?? 'Archive';
           return { kind: 'error' as const, title: 'Batch completed with failures', detail: `${summary} ${archive}: ${first?.message ?? 'No failure reason was returned.'}${failed.length > 1 ? ' Select each failed item to review its reason.' : ''}` };

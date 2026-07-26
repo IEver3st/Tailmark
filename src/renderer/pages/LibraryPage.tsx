@@ -19,10 +19,13 @@ import {
 import { useState } from "react";
 import type { BackupRecord, SkinPackage, SoundPackage } from "@shared/models";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import {
+  CollectionsView, HangarsView, OperationalStrip, SightsView,
+} from "../features/library/ManagedLibraryTabs";
 import { formatBytes, formatDate } from "../lib/format";
 import { useAppStore } from "../stores/app-store";
 
-type Tab = "skins" | "sounds" | "backups";
+type Tab = "skins" | "collections" | "sights" | "hangars" | "sounds" | "backups";
 interface ConfirmState {
   title: string;
   detail: string;
@@ -49,8 +52,10 @@ export function LibraryPage(): React.JSX.Element {
   const [profileRenameValue, setProfileRenameValue] = useState("");
   if (!snapshot)
     return (
-      <main className="page">
-        <div className="skeleton-page" />
+      <main className="page snapshot-loading" aria-live="polite">
+        <span className="spinner" aria-hidden="true" />
+        <strong>Loading managed library…</strong>
+        <span>Detecting War Thunder and reconciling installed content.</span>
       </main>
     );
 
@@ -266,6 +271,7 @@ export function LibraryPage(): React.JSX.Element {
           </span>
         </div>
       </div>
+      <OperationalStrip />
       <section className="library-summary" aria-label="Library summary">
         {tab === "skins" ? (
           <>
@@ -317,6 +323,9 @@ export function LibraryPage(): React.JSX.Element {
             </div>
           </>
         ) : null}
+        {tab === "collections" ? <><div><strong>{snapshot.collections.length}</strong><span>collections</span></div><div><strong>{snapshot.collections.find((item) => item.active)?.skinIds.length ?? 0}</strong><span>skins active</span></div></> : null}
+        {tab === "sights" ? <><div><strong>{snapshot.sights.length}</strong><span>sight packages</span></div><div><strong>{snapshot.sights.filter((item) => item.active).length}</strong><span>active</span></div></> : null}
+        {tab === "hangars" ? <><div><strong>{snapshot.hangars.length}</strong><span>hangars</span></div><div><strong>{snapshot.hangars.filter((item) => item.active).length}</strong><span>active</span></div></> : null}
         {search ? (
           <div className="library-summary-filter">
             <Search />
@@ -326,7 +335,13 @@ export function LibraryPage(): React.JSX.Element {
                 ? filteredSkins.length
                 : tab === "sounds"
                   ? filteredSounds.length
-                  : filteredBackups.length}{" "}
+                  : tab === "collections"
+                    ? snapshot.collections.filter((item) => item.name.toLowerCase().includes(search.toLowerCase())).length
+                    : tab === "sights"
+                      ? snapshot.sights.filter((item) => item.name.toLowerCase().includes(search.toLowerCase())).length
+                      : tab === "hangars"
+                        ? snapshot.hangars.filter((item) => item.name.toLowerCase().includes(search.toLowerCase())).length
+                        : filteredBackups.length}{" "}
               results
             </span>
           </div>
@@ -334,7 +349,7 @@ export function LibraryPage(): React.JSX.Element {
       </section>
       <div className="library-controls">
         <div className="segment-control" role="tablist">
-          {(["skins", "sounds", "backups"] as const).map((value) => (
+          {(["skins", "collections", "sights", "hangars", "sounds", "backups"] as const).map((value) => (
             <button
               key={value}
               type="button"
@@ -345,6 +360,12 @@ export function LibraryPage(): React.JSX.Element {
             >
               {value === "skins"
                 ? `User Skins · ${snapshot.skins.length}`
+                : value === "collections"
+                  ? `Collections · ${snapshot.collections.length}`
+                  : value === "sights"
+                    ? `Sights · ${snapshot.sights.length}`
+                    : value === "hangars"
+                      ? `Hangars · ${snapshot.hangars.length}`
                 : value === "sounds"
                   ? `Sound Mods · ${snapshot.sounds.length}`
                   : `Backups · ${snapshot.backups.length}`}
@@ -374,6 +395,9 @@ export function LibraryPage(): React.JSX.Element {
         </label>
       </div>
       <div className="library-workspace">
+        {tab === "collections" ? <CollectionsView search={search} /> : null}
+        {tab === "sights" ? <SightsView search={search} /> : null}
+        {tab === "hangars" ? <HangarsView search={search} /> : null}
         {tab === "skins" ? (
           <section className="library-list skins" aria-label="Installed user skins">
             <div className="list-header skins">
