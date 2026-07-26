@@ -44,4 +44,10 @@ The installer will be at `release/Tailmark-Setup-1.1.0.exe`.
 
 ## Assets
 
-- `Tailmark-Setup-1.1.0.exe` - Windows x64 NSIS installer (build and attach a SHA-256 checksum).
+- `Tailmark-Setup-1.1.0.exe` - Windows x64 NSIS installer
+
+## Checksums
+
+| File | SHA-256 |
+|---|---|
+| `Tailmark-Setup-1.1.0.exe` | `DD9FC60D4B9B3FCEFC0A2EE822B9EA4457EAA625A4394C80E9BE5C03575C2D0C` |
