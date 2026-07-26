@@ -6,12 +6,12 @@
 
 Inspect archives before installation, resolve conflicts deliberately and recover from mistakes through automatic backups.
 
-[![Release](https://img.shields.io/badge/release-v1.1.0-blue)](https://github.com/IEver3st/ThunderMod/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?logo=windows)](https://github.com/IEver3st/ThunderMod/releases/latest)
+[![Release](https://img.shields.io/badge/release-v1.1.0-blue)](https://github.com/IEver3st/Tailmark/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?logo=windows)](https://github.com/IEver3st/Tailmark/releases/latest)
 [![Electron](https://img.shields.io/badge/Electron-43-47848F?logo=electron)](https://www.electronjs.org/)
 [![Licence](https://img.shields.io/badge/licence-MIT-green)](./LICENSE)
 
-[Download](https://github.com/IEver3st/ThunderMod/releases/latest) · [Report an issue](https://github.com/IEver3st/ThunderMod/issues/new)
+[Download](https://github.com/IEver3st/Tailmark/releases/latest) · [Report an issue](https://github.com/IEver3st/Tailmark/issues/new)
 
 </div>
 
@@ -155,7 +155,7 @@ Theme selection does not affect game files or installed packages.
 
 ## Installation
 
-1. Open the [latest release](https://github.com/IEver3st/ThunderMod/releases/latest).
+1. Open the [latest release](https://github.com/IEver3st/Tailmark/releases/latest).
 2. Download `Tailmark-Setup-<version>.exe`.
 3. Run the installer.
 4. Choose an installation directory.
@@ -249,7 +249,7 @@ Uninstalling Tailmark removes the application itself. It does not automatically 
 ### Clone and install
 
 ```powershell
-git clone https://github.com/IEver3st/ThunderMod.git
+git clone https://github.com/IEver3st/Tailmark.git
 cd ThunderMod
 npm install
 ```
