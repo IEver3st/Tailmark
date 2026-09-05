@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs';
 import { cp, mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { app, BrowserWindow, session } from 'electron';
-import { is } from '@electron-toolkit/utils';
 import { BackupService } from './backups/backup-service';
 import { registerIpc } from './ipc/register';
 import { InstallService } from './installation/install-service';
@@ -13,8 +12,14 @@ import { ManagedContentService } from './management/managed-content-service';
 import { OperationJournal } from './management/operation-journal';
 import { TrayController } from './tray/tray-controller';
 
+const isDevelopment =
+  process.env['NODE_ENV_ELECTRON_VITE'] === 'development' ||
+  Boolean(process.env['ELECTRON_RENDERER_URL']) ||
+  !app.isPackaged;
+const WINDOWS_APP_ID = isDevelopment ? 'com.tailmark.app.dev' : 'com.tailmark.app';
+
 app.setName('Tailmark');
-if (process.platform === 'win32') app.setAppUserModelId('com.tailmark.app');
+if (process.platform === 'win32') app.setAppUserModelId(WINDOWS_APP_ID);
 
 let mainWindow: BrowserWindow | null = null;
 let trayController: TrayController | null = null;
@@ -30,14 +35,16 @@ async function migrateLegacyUserData(dataRoot: string): Promise<void> {
 }
 
 function getWindowIcon(): string | undefined {
-  const iconPath = join(app.getAppPath(), 'build', 'icon.png');
+  const iconPath = isDevelopment
+    ? join(app.getAppPath(), 'build', 'icon.ico')
+    : join(process.resourcesPath, 'icon.ico');
   return existsSync(iconPath) ? iconPath : undefined;
 }
 
 function getTrayIcon(): string {
-  return app.isPackaged
-    ? join(process.resourcesPath, 'icon.ico')
-    : join(app.getAppPath(), 'build', 'icon.ico');
+  return isDevelopment
+    ? join(app.getAppPath(), 'build', 'icon.ico')
+    : join(process.resourcesPath, 'icon.ico');
 }
 
 function showWindow(): void {
@@ -72,11 +79,24 @@ function createWindow(): void {
       allowRunningInsecureContent: false,
     },
   });
+  if (process.platform === 'win32' && windowIcon) {
+    const relaunchCommand = isDevelopment
+      ? `"${process.execPath}" "${app.getAppPath()}"`
+      : `"${process.execPath}"`;
+    mainWindow.setAppDetails({
+      appId: WINDOWS_APP_ID,
+      appIconPath: windowIcon,
+      appIconIndex: 0,
+      relaunchCommand,
+      relaunchDisplayName: 'Tailmark',
+    });
+    mainWindow.setIcon(windowIcon);
+  }
   mainWindow.once('ready-to-show', () => mainWindow?.show());
   mainWindow.on('closed', () => { mainWindow = null; });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.webContents.on('will-navigate', (event) => event.preventDefault());
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
+  if (isDevelopment && process.env['ELECTRON_RENDERER_URL']) void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
   else void mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
 }
 

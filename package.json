@@ -7,7 +7,7 @@
   "author": "Tailmark contributors",
   "license": "MIT",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "node scripts/run-dev.mjs",
     "build": "npm run typecheck && electron-vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -19,7 +19,6 @@
     "package:dir": "npm run assets:installer && npm run build && electron-builder --dir"
   },
   "dependencies": {
-    "@electron-toolkit/utils": "^4.0.0",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -39,6 +38,7 @@
     "electron-vite": "^3.0.0",
     "jsdom": "^25.0.1",
     "png-to-ico": "^3.0.2",
+    "resedit": "^3.0.2",
     "sharp": "^0.35.3",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
